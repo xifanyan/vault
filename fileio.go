@@ -64,6 +64,29 @@ func readPassphrase(reader io.Reader) (string, error) {
 	return passphrase, nil
 }
 
+// ReadPassphrase reads and validates one passphrase from reader using the
+// same single-line and trailing-newline rules as passphrase files.
+func ReadPassphrase(reader io.Reader) (string, error) {
+	return readPassphrase(reader)
+}
+
+func writeSyncClose(file *os.File, data []byte, writeOperation, syncOperation, closeOperation string) error {
+	written, writeErr := file.Write(data)
+	if writeErr == nil && written != len(data) {
+		writeErr = io.ErrShortWrite
+	}
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if writeErr != nil || syncErr != nil || closeErr != nil {
+		return errors.Join(
+			wrapFileError(writeOperation, writeErr),
+			wrapFileError(syncOperation, syncErr),
+			wrapFileError(closeOperation, closeErr),
+		)
+	}
+	return nil
+}
+
 func generateCredentials(path string) error {
 	var secret [32]byte
 	if _, err := rand.Read(secret[:]); err != nil {
@@ -135,20 +158,7 @@ func writeExportFile(path string, data []byte, overwrite bool, forbiddenPaths ..
 		}
 		return fmt.Errorf("create export file: %w", err)
 	}
-	written, writeErr := file.Write(data)
-	if writeErr == nil && written != len(data) {
-		writeErr = io.ErrShortWrite
-	}
-	syncErr := file.Sync()
-	closeErr := file.Close()
-	if writeErr != nil || syncErr != nil || closeErr != nil {
-		return errors.Join(
-			wrapFileError("write export file", writeErr),
-			wrapFileError("sync export file", syncErr),
-			wrapFileError("close export file", closeErr),
-		)
-	}
-	return nil
+	return writeSyncClose(file, data, "write export file", "sync export file", "close export file")
 }
 
 func rejectInputAliases(destination string, forbiddenPaths []string) error {
@@ -187,18 +197,8 @@ func writeReplacementFile(path string, data []byte) error {
 		}
 	}()
 
-	written, writeErr := file.Write(data)
-	if writeErr == nil && written != len(data) {
-		writeErr = io.ErrShortWrite
-	}
-	syncErr := file.Sync()
-	closeErr := file.Close()
-	if writeErr != nil || syncErr != nil || closeErr != nil {
-		return errors.Join(
-			wrapFileError("write temporary file", writeErr),
-			wrapFileError("sync temporary file", syncErr),
-			wrapFileError("close temporary file", closeErr),
-		)
+	if err := writeSyncClose(file, data, "write temporary file", "sync temporary file", "close temporary file"); err != nil {
+		return err
 	}
 	if err := os.Rename(temporaryPath, path); err != nil {
 		return fmt.Errorf("replace destination: %w", err)

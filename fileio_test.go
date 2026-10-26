@@ -34,16 +34,16 @@ func TestReadPassphrase(t *testing.T) {
 		" secret \r\n":  " secret ",
 		"雪だるま\n":     "雪だるま",
 	} {
-		got, err := readPassphrase(strings.NewReader(input))
+		got, err := ReadPassphrase(strings.NewReader(input))
 		if err != nil || got != want {
-			t.Errorf("readPassphrase(%q) = %q, %v; want %q, nil", input, got, err, want)
+			t.Errorf("ReadPassphrase(%q) = %q, %v; want %q, nil", input, got, err, want)
 		}
 	}
 
 	for _, input := range []string{"", "\n", "\r\n", "secret\n\n", "secret\r\n\r\n", "first\nsecond", "secret\n\r\n", "\xef\xbb\xbfsecret", "nul\x00byte", string([]byte{0xff})} {
 		t.Run("invalid", func(t *testing.T) {
-			if got, err := readPassphrase(strings.NewReader(input)); !errors.Is(err, ErrInvalidFormat) || got != "" {
-				t.Errorf("readPassphrase(%q) = %q, %v; want empty result and ErrInvalidFormat", input, got, err)
+			if got, err := ReadPassphrase(strings.NewReader(input)); !errors.Is(err, ErrInvalidFormat) || got != "" {
+				t.Errorf("ReadPassphrase(%q) = %q, %v; want empty result and ErrInvalidFormat", input, got, err)
 			}
 		})
 	}

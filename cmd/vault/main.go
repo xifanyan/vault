@@ -264,23 +264,38 @@ func parseInit(inv *invocation, args []string) error {
 	return nil
 }
 
+func parseScopeOption(inv *invocation, args []string, i int) (int, error) {
+	switch args[i] {
+	case "--defaults":
+		if inv.scopeSet {
+			return 0, errUsage
+		}
+		inv.scopeSet, inv.useDefaults = true, true
+		return 1, nil
+	case "--env":
+		if inv.scopeSet || !hasOptionValue(args, i) {
+			return 0, errUsage
+		}
+		inv.scopeSet, inv.environment = true, args[i+1]
+		return 2, nil
+	default:
+		return 0, errUsage
+	}
+}
+
 func parseGet(inv *invocation, args []string) error {
 	seenInclude := false
 	i := 0
 	for i < len(args) && startsOption(args[i]) {
+		if args[i] == "--defaults" || args[i] == "--env" {
+			consumed, err := parseScopeOption(inv, args, i)
+			if err != nil {
+				return err
+			}
+			i += consumed
+			continue
+		}
 		switch args[i] {
-		case "--defaults":
-			if inv.scopeSet {
-				return errUsage
-			}
-			inv.scopeSet, inv.useDefaults = true, true
-			i++
-		case "--env":
-			if inv.scopeSet || !hasOptionValue(args, i) {
-				return errUsage
-			}
-			inv.scopeSet, inv.environment = true, args[i+1]
-			i += 2
 		case "--include-secrets":
 			if seenInclude {
 				return errUsage
@@ -307,19 +322,15 @@ func parseSet(inv *invocation, args []string) error {
 	seenClassification := false
 	i := 0
 	for i < len(args) && startsOption(args[i]) {
+		if args[i] == "--defaults" || args[i] == "--env" {
+			consumed, err := parseScopeOption(inv, args, i)
+			if err != nil {
+				return err
+			}
+			i += consumed
+			continue
+		}
 		switch args[i] {
-		case "--defaults":
-			if inv.scopeSet {
-				return errUsage
-			}
-			inv.scopeSet, inv.useDefaults = true, true
-			i++
-		case "--env":
-			if inv.scopeSet || !hasOptionValue(args, i) {
-				return errUsage
-			}
-			inv.scopeSet, inv.environment = true, args[i+1]
-			i += 2
 		case "--value-file":
 			if inv.valueSource.kind != sourceNone || !hasOptionValue(args, i) || args[i+1] == "" {
 				return errUsage
@@ -353,22 +364,15 @@ func parseSet(inv *invocation, args []string) error {
 func parseDelete(inv *invocation, args []string) error {
 	i := 0
 	for i < len(args) && startsOption(args[i]) {
-		switch args[i] {
-		case "--defaults":
-			if inv.scopeSet {
-				return errUsage
+		if args[i] == "--defaults" || args[i] == "--env" {
+			consumed, err := parseScopeOption(inv, args, i)
+			if err != nil {
+				return err
 			}
-			inv.scopeSet, inv.useDefaults = true, true
-			i++
-		case "--env":
-			if inv.scopeSet || !hasOptionValue(args, i) {
-				return errUsage
-			}
-			inv.scopeSet, inv.environment = true, args[i+1]
-			i += 2
-		default:
-			return errUsage
+			i += consumed
+			continue
 		}
+		return errUsage
 	}
 	if !inv.scopeSet || len(args)-i != 1 || startsOption(args[i]) {
 		return errUsage
@@ -539,6 +543,10 @@ func execute(inv invocation, stdin io.Reader, stdout, stderr io.Writer, allowCon
 }
 
 func executeInit(inv invocation, stdin io.Reader, stderr io.Writer, allowControlTerminal bool) error {
+	return executeInitWithPrompt(inv, stdin, stderr, allowControlTerminal, promptPassphrase)
+}
+
+func executeInitWithPrompt(inv invocation, stdin io.Reader, stderr io.Writer, allowControlTerminal bool, prompt func(io.Reader, io.Writer, string, bool) (string, error)) error {
 	if inv.generateFile != "" {
 		aliases, err := pathsAlias(inv.vaultPath, inv.generateFile)
 		if err != nil {
@@ -557,12 +565,37 @@ func executeInit(inv invocation, stdin io.Reader, stderr io.Writer, allowControl
 		_, err := vaultlib.Create(inv.vaultPath, inv.passphrase.file, inv.service)
 		return err
 	}
-	passphrase, err := readCurrentPassphrase(inv.passphrase, stdin, stderr, allowControlTerminal)
+	var passphrase string
+	var err error
+	if inv.passphrase.kind == sourceStdin {
+		passphrase, err = readCurrentPassphrase(inv.passphrase, stdin, stderr, allowControlTerminal)
+	} else if inv.passphrase.kind == sourcePrompt || inv.passphrase.kind == sourceNone {
+		passphrase, err = readConfirmedPassphrase(func(text string) (string, error) {
+			return prompt(stdin, stderr, text, allowControlTerminal)
+		})
+	} else {
+		return errUsage
+	}
 	if err != nil {
 		return err
 	}
 	_, err = vaultlib.CreateWithPassphrase(inv.vaultPath, inv.service, passphrase)
 	return err
+}
+
+func readConfirmedPassphrase(prompt func(string) (string, error)) (string, error) {
+	first, err := prompt("New passphrase: ")
+	if err != nil {
+		return "", err
+	}
+	second, err := prompt("Confirm new passphrase: ")
+	if err != nil {
+		return "", err
+	}
+	if first != second {
+		return "", errors.New("new passphrase confirmation mismatch")
+	}
+	return first, nil
 }
 
 func openVault(inv invocation, stdin io.Reader, stderr io.Writer, allowControlTerminal bool) (*vaultlib.Vault, error) {
@@ -598,18 +631,13 @@ func executePasswd(v *vaultlib.Vault, inv invocation, stdin io.Reader, stderr io
 		}
 		return v.SaveWithPassphrase(passphrase)
 	case sourcePrompt, sourceNone:
-		first, err := promptPassphrase(stdin, stderr, "New passphrase: ", allowControlTerminal)
+		passphrase, err := readConfirmedPassphrase(func(text string) (string, error) {
+			return promptPassphrase(stdin, stderr, text, allowControlTerminal)
+		})
 		if err != nil {
 			return err
 		}
-		second, err := promptPassphrase(stdin, stderr, "Confirm new passphrase: ", allowControlTerminal)
-		if err != nil {
-			return err
-		}
-		if first != second {
-			return errors.New("new passphrase confirmation mismatch")
-		}
-		return v.SaveWithPassphrase(first)
+		return v.SaveWithPassphrase(passphrase)
 	default:
 		return errUsage
 	}
@@ -694,17 +722,7 @@ func readPassphraseInput(reader io.Reader) (string, error) {
 	if reader == nil {
 		return "", errors.New("input is unavailable")
 	}
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return "", err
-	}
-	if len(data) > 0 && data[len(data)-1] == '\n' {
-		data = data[:len(data)-1]
-		if len(data) > 0 && data[len(data)-1] == '\r' {
-			data = data[:len(data)-1]
-		}
-	}
-	return string(data), nil
+	return vaultlib.ReadPassphrase(reader)
 }
 
 func promptPassphrase(stdin io.Reader, stderr io.Writer, prompt string, allowControlTerminal bool) (string, error) {
@@ -855,6 +873,6 @@ Commands:
 
 Configuration values are JSON documents supplied by file or standard input, never command-line arguments.
 Ordinary reads and exports redact sensitive values. --include-secrets explicitly emits plaintext secrets.
-Interactive passwd prompts twice for the new passphrase; explicit file/stdin sources are read once.
+Interactive init and passwd prompt twice for a new passphrase; explicit file/stdin sources are read once.
 Use --help before a command or after the command name to display this help.
 `

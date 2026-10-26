@@ -32,7 +32,7 @@ When standard input carries JSON, an interactive passphrase prompt uses the cont
 vault --vault service.vault init --service example --generate-passphrase-file service.pass
 ```
 
-The generated passphrase is never printed. Otherwise, `init` uses the ordinary current-passphrase source. `passwd` accepts `--new-passphrase-file FILE`, `--new-passphrase-stdin`, or `--prompt-new-passphrase`; interactive new passphrases are entered twice for confirmation. File and standard-input modes do not add a confirmation prompt.
+The generated passphrase is never printed. Otherwise, `init` uses the ordinary current-passphrase source. Default interactive input and `--prompt-passphrase` ask for a new passphrase twice and require matching entries before creating the vault. `--passphrase-file` and `--passphrase-stdin` read once without confirmation; `--generate-passphrase-file` creates a generated credential file instead of prompting. `passwd` accepts `--new-passphrase-file FILE`, `--new-passphrase-stdin`, or `--prompt-new-passphrase`; interactive new passphrases are entered twice for confirmation, while explicit file and standard-input modes are read once.
 
 ## Commands
 

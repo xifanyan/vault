@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"sort"
@@ -212,20 +211,7 @@ func createVaultFile(path string, ciphertext []byte) error {
 		}
 		return fmt.Errorf("create vault file: %w", err)
 	}
-	written, writeErr := file.Write(ciphertext)
-	if writeErr == nil && written != len(ciphertext) {
-		writeErr = io.ErrShortWrite
-	}
-	syncErr := file.Sync()
-	closeErr := file.Close()
-	if writeErr != nil || syncErr != nil || closeErr != nil {
-		return errors.Join(
-			wrapFileError("write vault file", writeErr),
-			wrapFileError("sync vault file", syncErr),
-			wrapFileError("close vault file", closeErr),
-		)
-	}
-	return nil
+	return writeSyncClose(file, ciphertext, "write vault file", "sync vault file", "close vault file")
 }
 
 // WriteExportFile writes an export without overwriting an existing file unless

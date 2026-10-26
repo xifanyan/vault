@@ -240,7 +240,10 @@ func TestRedactionMasksSensitiveContainersAndObscuredAncestors(t *testing.T) {
 	if err := prod.Set("/database", json.RawMessage(`"opaque"`)); err != nil {
 		t.Fatal(err)
 	}
-	before := cloneClassifications(v.classifications)
+	before := make(map[string]Classification, len(v.classifications))
+	for pointer, classification := range v.classifications {
+		before[pointer] = classification
+	}
 	config, err := v.Resolve("prod")
 	if err != nil {
 		t.Fatal(err)

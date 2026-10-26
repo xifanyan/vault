@@ -227,8 +227,7 @@ type Layer struct {
 }
 
 type Config struct {
-	root            map[string]any
-	classifications map[string]Classification
+	root                map[string]any
 	classificationIndex *classificationNode
 }
 
@@ -501,7 +500,7 @@ func (v *Vault) Resolve(environment string) (*Config, error) {
 		return nil, ErrNotFound
 	}
 	root := mergeObjects(v.defaults, override)
-	return &Config{root: root, classifications: cloneClassifications(v.classifications), classificationIndex: v.classificationTree()}, nil
+	return &Config{root: root, classificationIndex: v.classificationTree()}, nil
 }
 
 func (c *Config) Get(pointer string) (json.RawMessage, error) {
@@ -554,14 +553,6 @@ func cloneValue(value any) any {
 	default:
 		return value
 	}
-}
-
-func cloneClassifications(classifications map[string]Classification) map[string]Classification {
-	copy := make(map[string]Classification, len(classifications))
-	for pointer, classification := range classifications {
-		copy[pointer] = classification
-	}
-	return copy
 }
 
 type classificationNode struct {

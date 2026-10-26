@@ -203,6 +203,53 @@ func TestInitSourceConflictDoesNotCreateFiles(t *testing.T) {
 	}
 }
 
+func TestInitConfirmsInteractivePassphraseBeforeCreatingVault(t *testing.T) {
+	tests := []struct {
+		name       string
+		responses  []string
+		wantErr    bool
+		wantCreate bool
+	}{
+		{name: "matching entries", responses: []string{"secret", "secret"}, wantCreate: true},
+		{name: "mismatch", responses: []string{"first", "second"}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			vaultPath := filepath.Join(dir, "service.vault")
+			prompts := []string{}
+			responseIndex := 0
+			prompt := func(_ io.Reader, _ io.Writer, text string, _ bool) (string, error) {
+				prompts = append(prompts, text)
+				response := tt.responses[responseIndex]
+				responseIndex++
+				return response, nil
+			}
+
+			inv := invocation{
+				command:    "init",
+				vaultPath:  vaultPath,
+				passphrase: inputSource{kind: sourcePrompt},
+				service:    "example",
+			}
+			err := executeInitWithPrompt(inv, strings.NewReader("unused"), io.Discard, false, prompt)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("executeInitWithPrompt() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !reflect.DeepEqual(prompts, []string{"New passphrase: ", "Confirm new passphrase: "}) {
+				t.Fatalf("prompts = %q, want two matching-entry prompts", prompts)
+			}
+			if tt.wantCreate {
+				if _, err := vaultlib.OpenWithPassphrase(vaultPath, "secret"); err != nil {
+					t.Fatalf("matching init created an unusable vault: %v", err)
+				}
+			} else if _, err := os.Stat(vaultPath); !os.IsNotExist(err) {
+				t.Fatalf("mismatched init created vault: stat error = %v", err)
+			}
+		})
+	}
+}
+
 func TestHelpDoesNotRequireVault(t *testing.T) {
 	for _, args := range [][]string{{"--help"}, {"env", "list", "--help"}} {
 		stdin := &countingReader{}
