@@ -212,11 +212,13 @@ type payload struct {
 }
 
 type Vault struct {
-	service         string
-	defaults        map[string]any
-	environments    map[string]map[string]any
-	classifications map[string]Classification
+	service            string
+	defaults           map[string]any
+	environments       map[string]map[string]any
+	classifications    map[string]Classification
 	classificationIndex *classificationNode
+	vaultPath          string
+	passphrase         string
 }
 
 type Layer struct {
