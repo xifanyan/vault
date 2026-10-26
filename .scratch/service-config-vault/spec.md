@@ -2,7 +2,7 @@
 
 ## 文档状态与目标
 
-本文已覆盖当前简化范围内用户确认的配置、凭据、文件、导出及 CLI/Go 接口决策，作为实现交接基线；不表示产品代码或跨平台验收已经完成。
+本文记录当前简化范围内已确认的配置、凭据、文件、导出及 CLI/Go 接口决策。实现已合并至 `integration/service-config-vault`，并在 Windows/amd64、Go 1.27.2 上通过 Go 测试与 CLI smoke；Linux/macOS 实机验收尚未执行。
 
 目标是使用 Go 提供可在 Windows、Linux、macOS 上运行的配置管理 CLI，以及可程序化读写本地 vault 的 Go 库。
 
@@ -212,9 +212,9 @@ Go 的 `Layer.Get` 与 `Config.Get` 返回调用方拥有的真实 `json.RawMess
 
 ## 实现交接
 
-当前范围内的实现前决策已闭合，完整 CLI 与 Go 签名、错误和三条主流程见[最终接口契约](issues/07-cli-go-contract.md#answer)。可按本规格及验收场景实施，不需要再扩展底层文件系统保证。
+本规格中的实现前决策已闭合；Go 库和 CLI 的代码实现见 issues 12–16，接口签名、错误和主流程见[最终接口契约](issues/07-cli-go-contract.md#answer)。不需要再扩展底层文件系统保证。
 
-代码实现与实际命令、库调用、跨平台和异常场景验收尚未执行；路线图完成只表示规格就绪，不是产品完成。
+已在 Windows/amd64、Go 1.27.2 上执行 `go test ./...` 和真实 CLI smoke，覆盖初始化、层级读写、脱敏、导出、口令轮换和复制后重新打开。Linux/macOS 与其他目标组合尚未运行；跨操作系统验收仍待目标环境执行。
 
 ## 范围外
 

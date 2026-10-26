@@ -34,10 +34,11 @@ Status: resolved
 - [age v1 加密封装实现](issues/13-age-format.md#answer)：完成固定档位加密、限长读取与完整认证交付。
 - [凭据适配与安全文件操作实现](issues/14-file-credentials.md#answer)：完成口令适配、凭据生成、文件替换和导出路径保护。
 - [公共 Go 库生命周期与持久化实现](issues/15-go-library.md#answer)：完成 SDK 创建、打开、显式保存、凭据轮换、快照和分层导出。
+- [Vault CLI 命令与输出实现](issues/16-cli.md#answer)：完成全部管理、查询、导出与换口令命令，并通过实际命令流程烟测。
 
 ## Not yet specified
 
-当前无实现前必须新增的决策问题；创建管理、程序读写及复制迁移三条流程的收敛检查见[最终接口契约](issues/07-cli-go-contract.md#answer)。产品实现与实际验收不是本规划地图已完成的内容。
+当前无实现前必须新增的决策问题；产品代码和实际验收由 issues 12–16 记录，不再属于设计路线图的未决范围。创建管理、程序读写及复制迁移三条流程的设计收敛检查见[最终接口契约](issues/07-cli-go-contract.md#answer)。
 
 ## Out of scope
 
