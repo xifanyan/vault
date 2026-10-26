@@ -23,3 +23,9 @@ Implement `GenerateCredentials`, `Create`, `Open`, `Vault`/`Layer` environment m
 ## Resolution
 
 On completion, append an `## Answer` section describing implementation and exercised verification, set `Status: resolved`, and add a context pointer to the map's Decisions so far.
+
+## Answer
+
+Implemented the public Go library lifecycle, environment/model use, explicit persistence and passphrase rotation, plus layered `ExportJSON`. Added public behavior tests for persistence boundaries, snapshots and ownership, error identities, rotation/old-copy behavior, credential generation, and redacted/raw exports. The CLI-facing `CreateWithPassphrase`, `OpenWithPassphrase`, and `SaveWithPassphrase` paths validate direct passphrase text.
+
+Verification was not run in this worktree per the integration workflow; the integration owner should run the repository checks before resolving this ticket.
