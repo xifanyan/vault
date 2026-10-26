@@ -1,7 +1,7 @@
 # Public Go library lifecycle and persistence
 
 Type: task
-Status: open
+Status: claimed
 Labels: ready-for-agent
 Parent: [本地服务配置 Vault：实现就绪规格路线图](../map.md)
 Blocked by: 12, 13, 14

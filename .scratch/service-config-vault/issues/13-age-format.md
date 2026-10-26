@@ -1,8 +1,7 @@
 # age v1 encryption and strict payload format
 
 Type: task
-Status: claimed
-Labels: ready-for-agent
+Status: resolved
 Parent: [本地服务配置 Vault：实现就绪规格路线图](../map.md)
 Blocked by: 04, 09
 
@@ -26,3 +25,7 @@ Implement the approved `filippo.io/age v1.3.2` binary scrypt envelope and bounde
 ## Resolution
 
 On completion, append an `## Answer` section describing implementation and exercised verification, set `Status: resolved`, and add a context pointer to the map's Decisions so far.
+
+## Answer
+
+Implemented the age v1.3.2 binary scrypt envelope with fixed work factor 18, strict stanza checks, bounded ciphertext/plaintext handling, and complete authenticated reads before returning payload bytes. `format_test.go` covers roundtrip, authentication failure, malformed/cost-limited input, and limits. `go test ./...` passed on Windows/amd64 with Go 1.27.2 (`ok servicevault 7.336s`).

@@ -30,6 +30,9 @@ Status: resolved
 - [Vault 与解锁凭据的便携使用契约](issues/05-file-operations.md#answer)：复制两份文件即可迁移，串行修改与复制，移除复杂协调和部署前提。
 - [JSON 查看与导出契约](issues/06-json-export.md#answer)：只导出整库保存的层级，默认脱敏并标注路径，文件输出默认不覆盖。
 - [CLI 与 Go 库接口契约](issues/07-cli-go-contract.md#answer)：固定可读写 SDK、内存编辑与显式保存、便携凭据初始化，以及命令、输出和错误约定。
+- [严格 JSON 模型、键路径与敏感标记实现](issues/12-json-model.md#answer)：完成配置模型、路径语义、分类、脱敏及行为测试。
+- [age v1 加密封装实现](issues/13-age-format.md#answer)：完成固定档位加密、限长读取与完整认证交付。
+- [凭据适配与安全文件操作实现](issues/14-file-credentials.md#answer)：完成口令适配、凭据生成、文件替换和导出路径保护。
 
 ## Not yet specified
 

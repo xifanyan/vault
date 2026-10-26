@@ -1,8 +1,7 @@
 # Credential adapters and safe file operations
 
 Type: task
-Status: claimed
-Labels: ready-for-agent
+Status: resolved
 Parent: [本地服务配置 Vault：实现就绪规格路线图](../map.md)
 Blocked by: 03, 05
 
@@ -26,3 +25,7 @@ Implement shared passphrase/file adapters and the basic file-writing boundary. R
 ## Resolution
 
 On completion, append an `## Answer` section describing implementation and exercised verification, set `Status: resolved`, and add a context pointer to the map's Decisions so far.
+
+## Answer
+
+Implemented shared passphrase validation/adapters, create-only random credentials, bounded vault reads, encrypted same-directory temporary writes with checked sync/close and replacement, and export overwrite/alias checks. `fileio_test.go` covers credential boundaries, no-overwrite generation, bounded reads, replacement, and export protections. `go test ./...` passed on Windows/amd64 with Go 1.27.2 (`ok servicevault 7.336s`).

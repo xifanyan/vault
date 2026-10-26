@@ -1,8 +1,7 @@
 # Strict JSON model, pointers, and classification behavior
 
 Type: task
-Status: claimed
-Labels: ready-for-agent
+Status: resolved
 Parent: [本地服务配置 Vault：实现就绪规格路线图](../map.md)
 Blocked by: 01, 02
 
@@ -25,3 +24,7 @@ Implement the in-memory data model and configuration semantics in the design spe
 ## Resolution
 
 On completion, append an `## Answer` section describing implementation and exercised verification, set `Status: resolved`, and add a context pointer to the map's Decisions so far.
+
+## Answer
+
+Implemented strict, precision-preserving JSON parsing, the configuration model and pointer semantics, merge/snapshot ownership, classifications, and redacted reads. Behavior tests in `model_test.go` cover the specified parser, mutation, inheritance, masking, and ownership boundaries. `go test ./...` passed on Windows/amd64 with Go 1.27.2 (`ok servicevault 7.336s`).
