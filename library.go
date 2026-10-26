@@ -227,3 +227,10 @@ func createVaultFile(path string, ciphertext []byte) error {
 	}
 	return nil
 }
+
+// WriteExportFile writes an export without overwriting an existing file unless
+// overwrite is true. It rejects destinations that alias any forbidden input
+// path.
+func WriteExportFile(path string, data []byte, overwrite bool, forbiddenPaths ...string) error {
+	return writeExportFile(path, data, overwrite, forbiddenPaths...)
+}

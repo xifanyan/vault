@@ -2,7 +2,10 @@ module servicevault
 
 go 1.27.0
 
-require filippo.io/age v1.3.2
+require (
+	filippo.io/age v1.3.2
+	golang.org/x/term v0.45.0
+)
 
 require (
 	filippo.io/hpke v0.4.0 // indirect
