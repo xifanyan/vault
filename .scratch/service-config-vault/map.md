@@ -33,6 +33,7 @@ Status: resolved
 - [严格 JSON 模型、键路径与敏感标记实现](issues/12-json-model.md#answer)：完成配置模型、路径语义、分类、脱敏及行为测试。
 - [age v1 加密封装实现](issues/13-age-format.md#answer)：完成固定档位加密、限长读取与完整认证交付。
 - [凭据适配与安全文件操作实现](issues/14-file-credentials.md#answer)：完成口令适配、凭据生成、文件替换和导出路径保护。
+- [公共 Go 库生命周期与持久化实现](issues/15-go-library.md#answer)：完成 SDK 创建、打开、显式保存、凭据轮换、快照和分层导出。
 
 ## Not yet specified
 

@@ -1,8 +1,7 @@
 # Public Go library lifecycle and persistence
 
 Type: task
-Status: claimed
-Labels: ready-for-agent
+Status: resolved
 Parent: [本地服务配置 Vault：实现就绪规格路线图](../map.md)
 Blocked by: 12, 13, 14
 
@@ -27,5 +26,4 @@ On completion, append an `## Answer` section describing implementation and exerc
 ## Answer
 
 Implemented the public Go library lifecycle, environment/model use, explicit persistence and passphrase rotation, plus layered `ExportJSON`. Added public behavior tests for persistence boundaries, snapshots and ownership, error identities, rotation/old-copy behavior, credential generation, and redacted/raw exports. The CLI-facing `CreateWithPassphrase`, `OpenWithPassphrase`, and `SaveWithPassphrase` paths validate direct passphrase text.
-
-Verification was not run in this worktree per the integration workflow; the integration owner should run the repository checks before resolving this ticket.
+Verification: `go test ./...` passed on Windows/amd64 with Go 1.27.2 (`ok servicevault 41.469s`).

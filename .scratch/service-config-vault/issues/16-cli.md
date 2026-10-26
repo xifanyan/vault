@@ -1,7 +1,7 @@
 # Vault CLI commands and output contract
 
 Type: task
-Status: open
+Status: claimed
 Labels: ready-for-agent
 Parent: [本地服务配置 Vault：实现就绪规格路线图](../map.md)
 Blocked by: 15
