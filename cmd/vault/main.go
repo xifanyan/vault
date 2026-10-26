@@ -47,6 +47,8 @@ type invocation struct {
 	classificationSet bool
 	output            string
 	overwrite         bool
+	pointer            string
+	valueSource        inputSource
 }
 
 func main() {
