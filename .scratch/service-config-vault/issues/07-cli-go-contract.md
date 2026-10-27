@@ -107,22 +107,26 @@ CLI 的显式生成选项先生成新凭据，再调用 `Create`；已有输入�
 | `env list` | 输出排序后的环境名称 JSON 数组 |
 | `env create NAME` | 新建空环境并保存；标准输出为空 |
 | `env delete NAME` | 显式删除环境及其覆盖值并保存，不额外确认；标准输出为空 |
-| `get (--defaults 或 --env NAME) [--include-secrets] [POINTER]` | 默认层读原值，环境读有效值；省略指针读根，输出下述查询 JSON |
-| `set (--defaults 或 --env NAME) (--value-file FILE 或 --value-stdin) [--classification CLASS] POINTER` | 从文件或标准输入读取恰好一份 JSON 值；修改所选原始层，必要时显式分类，然后保存一次；标准输出为空 |
-| `delete (--defaults 或 --env NAME) POINTER` | 只删除所选存储层的显式值并保存；标准输出为空 |
+| `get (--defaults 或 --env NAME) [--include-secrets] [--key KEY 或 POINTER]` | 默认层读原值，环境读有效值；键和指针互斥，均省略则读根；标准输出直接写所选 JSON 值，不添加响应外层 |
+| `set (--defaults 或 --env NAME) (--value TEXT 或 --value-file FILE 或 --value-stdin) [--classification CLASS] (--key KEY 或 POINTER)` | `--value` 输入数字或字符串；文件和标准输入仍读取一份 JSON 值；修改所选原始层，必要时显式分类，然后保存一次；标准输出为空 |
+| `delete (--defaults 或 --env NAME) (--key KEY 或 POINTER)` | 只删除所选存储层的显式值并保存；标准输出为空 |
 | `classify POINTER CLASS` | `CLASS` 仅为 `sensitive` 或 `non-sensitive`，作用于所有环境共享的逻辑路径；保存后标准输出为空 |
 | `export [--output FILE] [--overwrite] [--include-secrets]` | 输出既定整库层级 JSON；指定文件时默认不覆盖，不增加环境导出模式 |
 | `passwd [--new-passphrase-file FILE 或 --new-passphrase-stdin 或 --prompt-new-passphrase]` | 用当前来源认证旧口令，按新来源保存新口令保护的文件；未指定新来源时只允许交互确认，成功标准输出为空 |
 
 读取/写入的 `--defaults` 与 `--env` 必须恰好选择一个；环境不存在时报错，不自动创建或退回默认层。`get --env` 读取有效配置不等于增加一种 `export` 模式。`set` 新键默认敏感；显式 `--classification` 只改目标本身的全局分类，不对整个子树取消保护。
 
-`set` 不接受命令行中的明文值；配置 JSON 用文件或标准输入传递，口令也不出现在参数内容中。配置值输入按既定 16 MiB 载荷上限限长读取，保存时还计入其他配置与元数据。标准输入只分配给一个逻辑输入；来源与形状冲突在读文件、提示或消费输入前拒绝。
+根据后续简化设置命令的用户决策，`set` 接受互斥的 `--value TEXT`、`--value-file FILE`、`--value-stdin`。`--value` 只生成数字或字符串：合法 JSON 数字按原精度保存，其余文本按字符串保存，不推断布尔值、`null`、对象或数组；shell 引号不改变数字推断。需要数字外观的字符串时，使用文件或标准输入提供 JSON 字符串。文件和标准输入保留既有完整 JSON 类型支持。
+
+`get`、`set` 和 `delete` 共享互斥的 `--key KEY` 或位置参数 `POINTER`。`set` 和 `delete` 必须指定一个目标；`get` 可省略目标以读取根。`--key database.host` 选择 `database` 对象下的 `host` 属性，保留真实层级而不是创建名为 `database.host` 的扁平属性；`get --key database` 返回整个对象。拒绝空键及开头、结尾或连续的点；段内的 `/`、`~` 按字面属性名处理，不产生额外路径层级。属性名含字面点或空属性名时使用 JSON Pointer。任意 `set` 目标形式均可搭配任意值来源；`get` 两种目标形式均遵守既有环境合并和脱敏规则。`delete` 只删除所选层显式值，保留兄弟属性、其他层和分类记录；删除覆盖后可重新继承默认值，仅存在于默认层的键不能通过环境层删除。对象目标会删除该层整个对象，不能删除配置根。
+
+命令行值可能暴露在进程参数和 shell 历史中；敏感配置仍应使用文件或标准输入，解锁口令仍不能作为参数内容传入。配置值输入按既定 16 MiB 上限限长，保存时还计入其他配置与元数据。标准输入只分配给一个逻辑输入；来源与形状冲突在读文件、提示或消费输入前拒绝。
 
 CLI 的普通修改命令执行打开、修改、一次保存；`passwd` 只执行一次新口令保存，读取和导出命令不保存。交互新口令仍需确认两次，文件与标准输入方式不额外确认；所有命令均不自动等待锁或重试。
 
 ### 查询 JSON 与错误约定
 
-`get` 固定输出 `value` 和 `redacted_paths`。路径相对于所选配置根，而不是相对于返回的 `value`；空数组表示未隐藏。默认遵守敏感容器不透明规则，直接返回保护边界的 `null`，不先泄露后代存在性。`--include-secrets` 才走真实读取，恢复正常路径错误。
+根据后续直接打印配置的用户决策，`get` 的标准输出直接是所选 JSON 值，不再封装 `value` 和 `redacted_paths`。无目标时返回配置根对象，叶子目标保留字符串、数字及其他既有 JSON 类型；脚本直接消费标准输出，不再提取 `.value`。默认遵守敏感容器不透明规则，将隐藏值输出为 `null`，不先泄露后代存在性；仅确实发生脱敏时，向标准错误写入只包含 `redacted_paths` 的 JSON 诊断，成功退出码仍为 `0`。路径相对于所选配置根；普通非敏感 `null` 不产生脱敏诊断。`--include-secrets` 才走真实读取，恢复正常路径错误，且不产生脱敏诊断。此变更不改变 `export` 的层级输出契约。
 
 根与值读取均保持 JSON 类型和精度；合法 `null` 不等于不存在。删除环境层中不存在的覆盖键返回 `ErrNotFound`，即使有效配置能从默认层继承该值；不将不存在当成成功。
 

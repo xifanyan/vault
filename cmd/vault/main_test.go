@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -63,6 +64,44 @@ func TestInvocationShapeErrorsUseExitCodeTwo(t *testing.T) {
 		{"--vault", "vault.bin", "--passphrase-stdin", "set", "--defaults", "--value-file", "value.json"},
 		{"--vault", "vault.bin", "--passphrase-file", "--passphrase-stdin", "get", "--defaults"},
 		{"--vault", "vault.bin", "--passphrase-stdin", "get", "--env", "--defaults", "/token"},
+		{"--vault", "vault.bin", "--passphrase-stdin", "delete", "--defaults"},
+	}
+	for _, options := range [][]string{
+		{"--key", "", "--value", "text"},
+		{"--key", ".host", "--value", "text"},
+		{"--key", "database.", "--value", "text"},
+		{"--key", "database..host", "--value", "text"},
+		{"--key", "database.host", "--value", "text", "/other"},
+		{"--key", "database.host", "--key", "other", "--value", "text"},
+		{"--key", "database.host", "--value", "first", "--value", "second"},
+		{"--key", "database.host", "--value", "text", "--value-file", "value.json"},
+		{"--key", "database.host", "--value-file", "value.json", "--value", "text"},
+		{"--key", "database.host", "--value", "text", "--value-stdin"},
+		{"--key", "database.host", "--value-stdin", "--value", "text"},
+		{"--key", "database.host", "--value"},
+		{"--key", "database.host"},
+		{"--value", "text"},
+		{"--value", "text", "--key"},
+		{"--key", "--value", "text"},
+		{"--value", "--key", "database.host"},
+	} {
+		args := []string{"--vault", "vault.bin", "--passphrase-stdin", "set", "--defaults"}
+		tests = append(tests, append(args, options...))
+	}
+	for _, options := range [][]string{
+		{"--key"},
+		{"--key", ""},
+		{"--key", ".host"},
+		{"--key", "database."},
+		{"--key", "database..host"},
+		{"--key", "database.host", "/other"},
+		{"--key", "database.host", "--key", "other"},
+		{"--key", "--include-secrets"},
+	} {
+		for _, command := range []string{"get", "delete"} {
+			args := []string{"--vault", "vault.bin", "--passphrase-stdin", command, "--defaults"}
+			tests = append(tests, append(args, options...))
+		}
 	}
 	for _, args := range tests {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
@@ -80,7 +119,7 @@ func TestInvocationShapeErrorsUseExitCodeTwo(t *testing.T) {
 
 func TestGetEmitsOnlyJSONAndUsesLibraryRedaction(t *testing.T) {
 	vaultPath, credentialsPath := createTestVault(t)
-	args := []string{"--vault", vaultPath, "--passphrase-file", credentialsPath, "get", "--defaults", "/token"}
+	args := []string{"--vault", vaultPath, "--passphrase-file", credentialsPath, "get", "--defaults", "--key", "token"}
 	var stdout, stderr bytes.Buffer
 	if code := run(args, strings.NewReader("unused"), &stdout, &stderr); code != 0 {
 		t.Fatalf("redacted get exit = %d; stderr=%q", code, stderr.String())
@@ -88,18 +127,20 @@ func TestGetEmitsOnlyJSONAndUsesLibraryRedaction(t *testing.T) {
 	if !json.Valid(bytes.TrimSpace(stdout.Bytes())) {
 		t.Fatalf("get stdout is not pure JSON: %q", stdout.String())
 	}
-	var response struct {
-		Value         json.RawMessage `json:"value"`
-		RedactedPaths []string        `json:"redacted_paths"`
+	if strings.TrimSpace(stdout.String()) != "null" {
+		t.Fatalf("redacted stdout = %q, want JSON null", stdout.String())
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+	var diagnostic struct {
+		RedactedPaths []string `json:"redacted_paths"`
+	}
+	if err := json.Unmarshal(stderr.Bytes(), &diagnostic); err != nil {
 		t.Fatal(err)
 	}
-	if string(response.Value) != "null" || !reflect.DeepEqual(response.RedactedPaths, []string{"/token"}) {
-		t.Fatalf("redacted result = (%s, %v), want (null, [/token])", response.Value, response.RedactedPaths)
+	if !reflect.DeepEqual(diagnostic.RedactedPaths, []string{"/token"}) {
+		t.Fatalf("redacted paths = %v, want [/token]", diagnostic.RedactedPaths)
 	}
-	if stderr.Len() != 0 || strings.Contains(stdout.String(), "never-print-this") {
-		t.Fatalf("redacted get leaked diagnostics or secret: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	if strings.Contains(stdout.String(), "never-print-this") || strings.Contains(stderr.String(), "never-print-this") {
+		t.Fatalf("redacted get leaked secret: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 
 	args = []string{"--vault", vaultPath, "--passphrase-file", credentialsPath, "get", "--defaults", "--include-secrets", "/token"}
@@ -108,8 +149,12 @@ func TestGetEmitsOnlyJSONAndUsesLibraryRedaction(t *testing.T) {
 	if code := run(args, strings.NewReader("unused"), &stdout, &stderr); code != 0 {
 		t.Fatalf("plain get exit = %d; stderr=%q", code, stderr.String())
 	}
-	if !json.Valid(bytes.TrimSpace(stdout.Bytes())) || !strings.Contains(stdout.String(), `"never-print-this"`) {
-		t.Fatalf("explicit get did not emit valid plaintext JSON value: %q", stdout.String())
+	var value string
+	if err := json.Unmarshal(stdout.Bytes(), &value); err != nil {
+		t.Fatalf("explicit get did not emit a JSON string: %q; error=%v", stdout.String(), err)
+	}
+	if value != "never-print-this" || stderr.Len() != 0 {
+		t.Fatalf("explicit get output = %q, stderr=%q", value, stderr.String())
 	}
 }
 
@@ -250,6 +295,38 @@ func TestInitConfirmsInteractivePassphraseBeforeCreatingVault(t *testing.T) {
 	}
 }
 
+func TestInitAndCommandsUseDefaultVaultPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", home)
+	}
+	credentialsPath := filepath.Join(home, "service.pass")
+	if err := os.WriteFile(credentialsPath, []byte("test-passphrase\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	args := []string{"--passphrase-file", credentialsPath, "init", "--service", "example"}
+	if code := run(args, strings.NewReader("unused"), &stdout, &stderr); code != 0 {
+		t.Fatalf("default init exit = %d; stderr=%q", code, stderr.String())
+	}
+	defaultVaultPath := filepath.Join(home, ".vault", "default.vault")
+	if _, err := vaultlib.Open(defaultVaultPath, credentialsPath); err != nil {
+		t.Fatalf("default init did not create an openable vault at %q: %v", defaultVaultPath, err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	args = []string{"--passphrase-file", credentialsPath, "env", "list"}
+	if code := run(args, strings.NewReader("unused"), &stdout, &stderr); code != 0 {
+		t.Fatalf("default env list exit = %d; stderr=%q", code, stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "[]" || stderr.Len() != 0 {
+		t.Fatalf("default env list output = %q, stderr=%q; want empty JSON array", stdout.String(), stderr.String())
+	}
+}
+
 func TestHelpDoesNotRequireVault(t *testing.T) {
 	for _, args := range [][]string{{"--help"}, {"env", "list", "--help"}} {
 		stdin := &countingReader{}
@@ -276,7 +353,7 @@ func TestExportStdoutIsLayeredRedactedJSON(t *testing.T) {
 	var result struct {
 		Service string `json:"service"`
 		Data    struct {
-			Defaults map[string]json.RawMessage `json:"defaults"`
+			Defaults     map[string]json.RawMessage `json:"defaults"`
 			Environments map[string]json.RawMessage `json:"environments"`
 		} `json:"data"`
 		RedactedPaths []string `json:"redacted_paths"`
@@ -289,5 +366,214 @@ func TestExportStdoutIsLayeredRedactedJSON(t *testing.T) {
 	}
 	if result.Data.Environments == nil || stderr.Len() != 0 || strings.Contains(stdout.String(), "never-print-this") {
 		t.Fatalf("export output contract violated: environments=%v stdout=%q stderr=%q", result.Data.Environments, stdout.String(), stderr.String())
+	}
+}
+
+func TestSetAndGetDottedKeysPreserveHierarchyTypesAndSensitivity(t *testing.T) {
+	vaultPath, credentialsPath := createTestVault(t)
+	runCommand := func(options ...string) (string, string) {
+		t.Helper()
+		args := append([]string{"--vault", vaultPath, "--passphrase-file", credentialsPath}, options...)
+		var stdout, stderr bytes.Buffer
+		if code := run(args, strings.NewReader("unused"), &stdout, &stderr); code != 0 {
+			t.Fatalf("command %v exit = %d; stderr=%q", options, code, stderr.String())
+		}
+		return stdout.String(), stderr.String()
+	}
+	if output, diagnostic := runCommand("env", "create", "dev"); output != "" || diagnostic != "" {
+		t.Fatalf("env create output: stdout=%q stderr=%q", output, diagnostic)
+	}
+	for _, options := range [][]string{
+		{"--key", "database.host", "--value", "vm-rhauswirth2.otxlab.net"},
+		{"--value", "8443", "--key", "database.port"},
+		{"--key", "database.zero", "--value", "0"},
+		{"--key", "database.offset", "--value", "-1.25e-3"},
+		{"--key", "database.large", "--value", "9007199254740993"},
+		{"--key", "database.code", "--value", "00123"},
+		{"--key", "database.enabled", "--value", "true"},
+		{"--key", "database.options", "--value", `{"nested":null}`},
+		{"--key", "database.empty", "--value", ""},
+		{"--key", "database.null", "--value", "null"},
+		{"--key", "names.a/b.~name", "--value", "quoted \"text\" \\path\n中文"},
+		{"--value", "literal dot", "/database.host"},
+	} {
+		if output, diagnostic := runCommand(append([]string{"set", "--env", "dev"}, options...)...); output != "" || diagnostic != "" {
+			t.Fatalf("set output: stdout=%q stderr=%q", output, diagnostic)
+		}
+	}
+
+	v, err := vaultlib.Open(vaultPath, credentialsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layer, err := v.Environment("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := layer.Get("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"database": map[string]any{
+			"host": "vm-rhauswirth2.otxlab.net", "port": json.Number("8443"), "enabled": "true",
+			"zero": json.Number("0"), "offset": json.Number("-1.25e-3"),
+			"large": json.Number("9007199254740993"), "code": "00123",
+			"options": `{"nested":null}`, "empty": "", "null": "null",
+		},
+		"names":         map[string]any{"a/b": map[string]any{"~name": "quoted \"text\" \\path\n中文"}},
+		"database.host": "literal dot",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("saved dev configuration = %#v, want %#v", got, want)
+	}
+	if _, err := v.Defaults().Get("/database/host"); err != vaultlib.ErrNotFound {
+		t.Fatalf("setting dev modified defaults: error=%v", err)
+	}
+	output, diagnostic := runCommand("get", "--env", "dev", "--key", "database.host")
+	var redacted struct {
+		RedactedPaths []string `json:"redacted_paths"`
+	}
+	if err := json.Unmarshal([]byte(diagnostic), &redacted); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(output) != "null" || !reflect.DeepEqual(redacted.RedactedPaths, []string{"/database/host"}) {
+		t.Fatalf("literal string was not sensitive by default: stdout=%s stderr=%s", output, diagnostic)
+	}
+	want["token"] = "never-print-this"
+	for _, tt := range []struct {
+		key  string
+		want any
+	}{
+		{key: "database.host", want: "vm-rhauswirth2.otxlab.net"},
+		{key: "database", want: want["database"]},
+		{key: "database.large", want: json.Number("9007199254740993")},
+		{key: "names.a/b.~name", want: "quoted \"text\" \\path\n中文"},
+		{key: "", want: want},
+	} {
+		options := []string{"get", "--env", "dev", "--include-secrets"}
+		if tt.key != "" {
+			options = append(options, "--key", tt.key)
+		}
+		output, diagnostic := runCommand(options...)
+		var value any
+		decoder := json.NewDecoder(strings.NewReader(output))
+		decoder.UseNumber()
+		if err := decoder.Decode(&value); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(value, tt.want) || diagnostic != "" {
+			t.Fatalf("get --key %q = %s, stderr=%s; want value %#v without redactions", tt.key, output, diagnostic, tt.want)
+		}
+	}
+}
+
+func TestDeleteDottedKeyPreservesDefaultsAndSiblingValues(t *testing.T) {
+	vaultPath, credentialsPath := createTestVault(t)
+	v, err := vaultlib.Open(vaultPath, credentialsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := v.Defaults().Set("/database", json.RawMessage(`{"host":"default.internal","port":8443}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.CreateEnvironment("dev"); err != nil {
+		t.Fatal(err)
+	}
+	dev, err := v.Environment("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dev.Set("/database", json.RawMessage(`{"host":"dev.internal","user":"dev-user"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := dev.Set("/database.host", json.RawMessage(`"literal-dot"`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.Save(); err != nil {
+		t.Fatal(err)
+	}
+	deleteKey := func(wantCode int, options ...string) {
+		t.Helper()
+		args := append([]string{"--vault", vaultPath, "--passphrase-file", credentialsPath, "delete"}, options...)
+		var stdout, stderr bytes.Buffer
+		if code := run(args, strings.NewReader("unused"), &stdout, &stderr); code != wantCode {
+			t.Fatalf("delete %v exit = %d, want %d; stderr=%q", options, code, wantCode, stderr.String())
+		}
+		if stdout.Len() != 0 || wantCode == 0 && stderr.Len() != 0 {
+			t.Fatalf("delete output contract violated: stdout=%q stderr=%q", stdout.String(), stderr.String())
+		}
+	}
+	deleteKey(0, "--env", "dev", "--key", "database.host")
+	v, err = vaultlib.Open(vaultPath, credentialsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, err = v.Environment("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := dev.Get("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"database":      map[string]any{"user": "dev-user"},
+		"database.host": "literal-dot",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("dev after deleting nested host = %#v, want %#v", got, want)
+	}
+	config, err := v.Resolve("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err = config.Get("/database/host")
+	if err != nil || string(raw) != `"default.internal"` {
+		t.Fatalf("effective host after deleting override = %s, error=%v; want inherited default", raw, err)
+	}
+	before, err := os.ReadFile(vaultPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleteKey(1, "--key", "database.host", "--env", "dev")
+	after, err := os.ReadFile(vaultPath)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("deleting an inherited-only value changed the vault: error=%v", err)
+	}
+}
+
+func TestGetPublicNullDoesNotReportRedaction(t *testing.T) {
+	vaultPath, credentialsPath := createTestVault(t)
+	v, err := vaultlib.Open(vaultPath, credentialsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := v.Defaults().Set("/nullable", json.RawMessage("null")); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.Classify("/nullable", vaultlib.NonSensitive); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.Save(); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"--vault", vaultPath, "--passphrase-file", credentialsPath, "get", "--defaults", "--key", "nullable"}
+	var stdout, stderr bytes.Buffer
+	if code := run(args, strings.NewReader("unused"), &stdout, &stderr); code != 0 {
+		t.Fatalf("public null get exit = %d; stderr=%q", code, stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "null" || stderr.Len() != 0 {
+		t.Fatalf("public null output = %q, stderr=%q; want raw JSON null without redaction diagnostics", stdout.String(), stderr.String())
 	}
 }

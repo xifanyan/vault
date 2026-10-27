@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/term"
 	vaultlib "servicevault"
@@ -24,31 +25,34 @@ const (
 	sourceFile
 	sourceStdin
 	sourcePrompt
+	sourceLiteral
 )
 
 type inputSource struct {
-	kind sourceKind
-	file string
+	kind  sourceKind
+	file  string
+	value string
 }
 
 type invocation struct {
-	command          string
-	vaultPath        string
-	passphrase       inputSource
-	newPassphrase    inputSource
-	service          string
-	generateFile     string
-	envAction        string
-	environment      string
-	useDefaults      bool
-	scopeSet         bool
-	includeSecrets   bool
+	command           string
+	vaultPath         string
+	defaultVault      bool
+	passphrase        inputSource
+	newPassphrase     inputSource
+	service           string
+	generateFile      string
+	envAction         string
+	environment       string
+	useDefaults       bool
+	scopeSet          bool
+	includeSecrets    bool
 	classification    string
 	classificationSet bool
 	output            string
 	overwrite         bool
-	pointer            string
-	valueSource        inputSource
+	pointer           string
+	valueSource       inputSource
 }
 
 func main() {
@@ -62,6 +66,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 func runWithTerminal(args []string, stdin io.Reader, stdout, stderr io.Writer, allowControlTerminal bool) int {
 	inv, err := parseInvocation(args)
 	if err != nil {
+		if errors.Is(err, errDefaultVaultPath) {
+			fmt.Fprintln(stderr, "vault: default vault path is unavailable")
+			return 1
+		}
 		fmt.Fprintln(stderr, "vault: invalid command usage (use --help for syntax)")
 		return 2
 	}
@@ -166,7 +174,7 @@ func parseInvocation(args []string) (invocation, error) {
 	}
 	inv.command = args[i]
 	rest := args[i+1:]
-	if inv.vaultPath == "" {
+	if vaultSeen && inv.vaultPath == "" {
 		return invocation{}, errUsage
 	}
 	switch inv.command {
@@ -231,10 +239,28 @@ func parseInvocation(args []string) (invocation, error) {
 	if inv.command == "passwd" && inv.passphrase.kind == sourceStdin && inv.newPassphrase.kind == sourceStdin {
 		return invocation{}, errUsage
 	}
+	if !vaultSeen {
+		path, err := defaultVaultPath()
+		if err != nil {
+			return invocation{}, err
+		}
+		inv.vaultPath = path
+		inv.defaultVault = true
+	}
 	return inv, nil
 }
 
 var errUsage = errors.New("invalid command usage")
+
+var errDefaultVaultPath = errors.New("default vault path unavailable")
+
+func defaultVaultPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", errDefaultVaultPath, err)
+	}
+	return filepath.Join(home, ".vault", "default.vault"), nil
+}
 
 func parseInit(inv *invocation, args []string) error {
 	seenService, seenGenerate := false, false
@@ -284,7 +310,7 @@ func parseScopeOption(inv *invocation, args []string, i int) (int, error) {
 }
 
 func parseGet(inv *invocation, args []string) error {
-	seenInclude := false
+	seenInclude, seenKey := false, false
 	i := 0
 	for i < len(args) && startsOption(args[i]) {
 		if args[i] == "--defaults" || args[i] == "--env" {
@@ -296,6 +322,16 @@ func parseGet(inv *invocation, args []string) error {
 			continue
 		}
 		switch args[i] {
+		case "--key":
+			if seenKey || !hasOptionValue(args, i) {
+				return errUsage
+			}
+			pointer, err := dottedKeyPointer(args[i+1])
+			if err != nil {
+				return err
+			}
+			seenKey, inv.pointer = true, pointer
+			i += 2
 		case "--include-secrets":
 			if seenInclude {
 				return errUsage
@@ -306,7 +342,7 @@ func parseGet(inv *invocation, args []string) error {
 			return errUsage
 		}
 	}
-	if !inv.scopeSet || len(args)-i > 1 {
+	if !inv.scopeSet || len(args)-i > 1 || seenKey && i < len(args) {
 		return errUsage
 	}
 	if i < len(args) {
@@ -319,7 +355,7 @@ func parseGet(inv *invocation, args []string) error {
 }
 
 func parseSet(inv *invocation, args []string) error {
-	seenClassification := false
+	seenClassification, seenKey := false, false
 	i := 0
 	for i < len(args) && startsOption(args[i]) {
 		if args[i] == "--defaults" || args[i] == "--env" {
@@ -331,6 +367,22 @@ func parseSet(inv *invocation, args []string) error {
 			continue
 		}
 		switch args[i] {
+		case "--key":
+			if seenKey || !hasOptionValue(args, i) {
+				return errUsage
+			}
+			pointer, err := dottedKeyPointer(args[i+1])
+			if err != nil {
+				return err
+			}
+			seenKey, inv.pointer = true, pointer
+			i += 2
+		case "--value":
+			if inv.valueSource.kind != sourceNone || !hasOptionValue(args, i) {
+				return errUsage
+			}
+			inv.valueSource = inputSource{kind: sourceLiteral, value: args[i+1]}
+			i += 2
 		case "--value-file":
 			if inv.valueSource.kind != sourceNone || !hasOptionValue(args, i) || args[i+1] == "" {
 				return errUsage
@@ -354,14 +406,46 @@ func parseSet(inv *invocation, args []string) error {
 			return errUsage
 		}
 	}
-	if !inv.scopeSet || inv.valueSource.kind == sourceNone || len(args)-i != 1 || startsOption(args[i]) {
+	if !inv.scopeSet || inv.valueSource.kind == sourceNone {
 		return errUsage
 	}
-	inv.pointer = args[i]
+	if seenKey {
+		if i != len(args) {
+			return errUsage
+		}
+	} else {
+		if len(args)-i != 1 || startsOption(args[i]) {
+			return errUsage
+		}
+		inv.pointer = args[i]
+	}
 	return nil
 }
 
+func dottedKeyPointer(key string) (string, error) {
+	var pointer strings.Builder
+	pointer.Grow(len(key) + 1)
+	for part := range strings.SplitSeq(key, ".") {
+		if part == "" {
+			return "", errUsage
+		}
+		pointer.WriteByte('/')
+		for i := range len(part) {
+			switch part[i] {
+			case '~':
+				pointer.WriteString("~0")
+			case '/':
+				pointer.WriteString("~1")
+			default:
+				pointer.WriteByte(part[i])
+			}
+		}
+	}
+	return pointer.String(), nil
+}
+
 func parseDelete(inv *invocation, args []string) error {
+	seenKey := false
 	i := 0
 	for i < len(args) && startsOption(args[i]) {
 		if args[i] == "--defaults" || args[i] == "--env" {
@@ -372,12 +456,29 @@ func parseDelete(inv *invocation, args []string) error {
 			i += consumed
 			continue
 		}
+		if args[i] != "--key" || seenKey || !hasOptionValue(args, i) {
+			return errUsage
+		}
+		pointer, err := dottedKeyPointer(args[i+1])
+		if err != nil {
+			return err
+		}
+		seenKey, inv.pointer = true, pointer
+		i += 2
+	}
+	if !inv.scopeSet {
 		return errUsage
 	}
-	if !inv.scopeSet || len(args)-i != 1 || startsOption(args[i]) {
-		return errUsage
+	if seenKey {
+		if i != len(args) {
+			return errUsage
+		}
+	} else {
+		if len(args)-i != 1 || startsOption(args[i]) {
+			return errUsage
+		}
+		inv.pointer = args[i]
 	}
-	inv.pointer = args[i]
 	return nil
 }
 
@@ -453,7 +554,7 @@ func hasOptionValue(args []string, index int) bool {
 	switch args[index+1] {
 	case "--vault", "--passphrase-file", "--passphrase-stdin", "--prompt-passphrase",
 		"--service", "--generate-passphrase-file", "--defaults", "--env", "--include-secrets",
-		"--value-file", "--value-stdin", "--classification", "--output", "--overwrite",
+		"--key", "--value", "--value-file", "--value-stdin", "--classification", "--output", "--overwrite",
 		"--new-passphrase-file", "--new-passphrase-stdin", "--prompt-new-passphrase":
 		return false
 	default:
@@ -490,7 +591,7 @@ func execute(inv invocation, stdin io.Reader, stdout, stderr io.Writer, allowCon
 			return v.Save()
 		}
 	case "get":
-		return executeGet(v, inv, stdout)
+		return executeGet(v, inv, stdout, stderr)
 	case "set":
 		layer, err := selectedLayer(v, inv)
 		if err != nil {
@@ -547,6 +648,11 @@ func executeInit(inv invocation, stdin io.Reader, stderr io.Writer, allowControl
 }
 
 func executeInitWithPrompt(inv invocation, stdin io.Reader, stderr io.Writer, allowControlTerminal bool, prompt func(io.Reader, io.Writer, string, bool) (string, error)) error {
+	if inv.defaultVault {
+		if err := os.MkdirAll(filepath.Dir(inv.vaultPath), 0o700); err != nil {
+			return fmt.Errorf("create default vault directory: %w", err)
+		}
+	}
 	if inv.generateFile != "" {
 		aliases, err := pathsAlias(inv.vaultPath, inv.generateFile)
 		if err != nil {
@@ -643,7 +749,7 @@ func executePasswd(v *vaultlib.Vault, inv invocation, stdin io.Reader, stderr io
 	}
 }
 
-func executeGet(v *vaultlib.Vault, inv invocation, stdout io.Writer) error {
+func executeGet(v *vaultlib.Vault, inv invocation, stdout, stderr io.Writer) error {
 	var value json.RawMessage
 	var redactedPaths []string
 	var err error
@@ -668,14 +774,15 @@ func executeGet(v *vaultlib.Vault, inv invocation, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if redactedPaths == nil {
-		redactedPaths = []string{}
+	if len(redactedPaths) != 0 {
+		diagnostic := struct {
+			RedactedPaths []string `json:"redacted_paths"`
+		}{RedactedPaths: redactedPaths}
+		if err := writeJSON(stderr, diagnostic); err != nil {
+			return err
+		}
 	}
-	response := struct {
-		Value         json.RawMessage `json:"value"`
-		RedactedPaths []string        `json:"redacted_paths"`
-	}{Value: value, RedactedPaths: redactedPaths}
-	return writeJSON(stdout, response)
+	return writeJSON(stdout, value)
 }
 
 func selectedLayer(v *vaultlib.Vault, inv invocation) (*vaultlib.Layer, error) {
@@ -686,6 +793,26 @@ func selectedLayer(v *vaultlib.Vault, inv invocation) (*vaultlib.Layer, error) {
 }
 
 func readValue(source inputSource, stdin io.Reader) ([]byte, error) {
+	if source.kind == sourceLiteral {
+		if len(source.value) > maxValueInputBytes {
+			return nil, vaultlib.ErrLimitExceeded
+		}
+		if !utf8.ValidString(source.value) {
+			return nil, vaultlib.ErrInvalidArgument
+		}
+		number := strings.TrimSpace(source.value)
+		if number != "" && (number[0] == '-' || number[0] >= '0' && number[0] <= '9') {
+			value := []byte(number)
+			if json.Valid(value) {
+				return value, nil
+			}
+		}
+		value, err := json.Marshal(source.value)
+		if len(value) > maxValueInputBytes {
+			return nil, vaultlib.ErrLimitExceeded
+		}
+		return value, err
+	}
 	if source.kind == sourceStdin {
 		return readLimited(stdin, maxValueInputBytes)
 	}
@@ -851,7 +978,11 @@ func pathsAlias(first, second string) (bool, error) {
 const helpText = `vault - encrypted service configuration vault
 
 Usage:
-  vault --vault FILE [passphrase source] COMMAND [command options]
+  vault [--vault FILE] [passphrase source] COMMAND [command options]
+
+Vault file:
+  --vault FILE             Use FILE instead of the default <home>/.vault/default.vault
+  Default home is $HOME (or USERPROFILE on Windows).
 
 Passphrase source (mutually exclusive, before COMMAND):
   --passphrase-file FILE   Read a single-line passphrase file
@@ -864,15 +995,21 @@ Commands:
   env list
   env create NAME
   env delete NAME
-  get (--defaults | --env NAME) [--include-secrets] [POINTER]
-  set (--defaults | --env NAME) (--value-file FILE | --value-stdin) [--classification CLASS] POINTER
-  delete (--defaults | --env NAME) POINTER
+  get (--defaults | --env NAME) [--include-secrets] [--key KEY | POINTER]
+  set (--defaults | --env NAME) (--value TEXT | --value-file FILE | --value-stdin) [--classification CLASS] (--key KEY | POINTER)
+  delete (--defaults | --env NAME) (--key KEY | POINTER)
   classify POINTER (sensitive | non-sensitive)
   export [--output FILE] [--overwrite] [--include-secrets]
   passwd [--new-passphrase-file FILE | --new-passphrase-stdin | --prompt-new-passphrase]
 
-Configuration values are JSON documents supplied by file or standard input, never command-line arguments.
+Get/set/delete: --key database.host selects the host property inside the database object.
+Empty dot-separated segments are rejected; get without a key or pointer reads the root.
+Use a positional JSON Pointer for literal dots or empty property names.
+--value saves a JSON number when TEXT is a valid JSON number; otherwise it saves a string.
+It never infers booleans, null, objects, or arrays. JSON files/stdin retain their existing types.
+Command-line values may be visible in process arguments and shell history; use file/stdin for secrets.
 Ordinary reads and exports redact sensitive values. --include-secrets explicitly emits plaintext secrets.
+Get writes the selected JSON value directly to stdout; redacted_paths diagnostics go to stderr.
 Interactive init and passwd prompt twice for a new passphrase; explicit file/stdin sources are read once.
 Use --help before a command or after the command name to display this help.
 `
