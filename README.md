@@ -20,16 +20,12 @@ Create a passphrase file and initialize a vault. The generated passphrase is wri
 ./vault --vault service.vault init --service example --generate-passphrase-file service.pass
 ```
 
-Create `host.json` with this JSON string, then store it in the defaults and read it through a named environment:
-
-```json
-"db.internal"
-```
+Create a `prod` environment, set its inherited host with the concise `--key`/`--value` form, then read it:
 
 ```sh
 ./vault --vault service.vault --passphrase-file service.pass env create prod
-./vault --vault service.vault --passphrase-file service.pass set --defaults --value-file host.json --classification non-sensitive /database/host
-./vault --vault service.vault --passphrase-file service.pass get --env prod /database/host
+./vault --vault service.vault --passphrase-file service.pass set --defaults --key database.host --value db.internal --classification non-sensitive
+./vault --vault service.vault --passphrase-file service.pass get --env prod --key database.host
 ```
 
 The `get` command returns the selected JSON value directly, without a response wrapper. Keep `service.pass` separate from the vault and restrict access to both files. Values are sensitive by default; mark a value non-sensitive only when exposing it in ordinary reads is intended. See [Commands](#commands) for environment overrides, secret reads, exports, and passphrase changes.
