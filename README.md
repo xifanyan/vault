@@ -1,6 +1,6 @@
 # Service Configuration Vault
 
-`servicevault` is a local encrypted configuration vault. The Go library lives at the module root (`servicevault`); the CLI entry point is `cmd/vault`.
+This is a local encrypted configuration vault. The Go library module is `github.com/xifanyan/vault` (package name `vault`); the CLI entry point is `cmd/vault`.
 
 ## Build
 

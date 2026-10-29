@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	vaultlib "servicevault"
+	vaultlib "github.com/xifanyan/vault"
 )
 
 type countingReader struct {

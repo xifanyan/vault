@@ -13,7 +13,7 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/term"
-	vaultlib "servicevault"
+	vaultlib "github.com/xifanyan/vault"
 )
 
 const maxValueInputBytes = 16 << 20

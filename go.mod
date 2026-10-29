@@ -1,4 +1,4 @@
-module servicevault
+module github.com/xifanyan/vault
 
 go 1.27.0
 
